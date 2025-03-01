@@ -363,11 +363,11 @@ const App = () => {
         )}
       </div>
       
-      <div className="mt-4 text-sm text-gray-600">
+      <div className="mt-4 text-sm text-black">
         Controls: Arrow keys to change lanes, Space to shoot
       </div>
 
-      <div>
+      <div className='mt-4 text-sm text-gray-600'>
         Made with Love 🩷 for Succinct by Banny18 
       </div>
 
