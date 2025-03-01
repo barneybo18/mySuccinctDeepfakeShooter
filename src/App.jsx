@@ -311,7 +311,7 @@ const App = () => {
     lastShot.current = 0;
   };
 
-  const [showInfo, setShowInfo] = useState(false);
+  const [showInfo, setShowInfo] = useState(true);
 
   const openInfo = () => {
     setShowInfo(true);
