@@ -38,6 +38,15 @@ const App = () => {
   const collisionSoundRef = useRef(null);
   const gameOverSoundRef = useRef(null);
   
+  // Device detection
+  const [isMobile, setIsMobile] = useState(false);
+  
+  // Mobile touch controls
+  const [isTouching, setIsTouching] = useState(false);
+  const [touchStartX, setTouchStartX] = useState(0);
+  const touchThreshold = 30; // pixels to move to change lane
+  const gameAreaRef = useRef(null);
+  
   // Controls state
   const [keysPressed, setKeysPressed] = useState({
     ArrowLeft: false,
@@ -45,7 +54,23 @@ const App = () => {
     Space: false
   });
 
-  
+  // Detect mobile devices on component mount
+  useEffect(() => {
+    const checkMobile = () => {
+      const isMobileDevice = window.innerWidth <= 768;
+      setIsMobile(isMobileDevice);
+    };
+
+    // Initial check
+    checkMobile();
+    
+    // Check on resize
+    window.addEventListener('resize', checkMobile);
+    
+    return () => {
+      window.removeEventListener('resize', checkMobile);
+    };
+  }, []);
   
   // Update difficulty level based on score
   useEffect(() => {
@@ -82,36 +107,55 @@ const App = () => {
       }
     };
     
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    // Only add keyboard listeners on non-mobile devices
+    if (!isMobile) {
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('keyup', handleKeyUp);
+    }
     
     const gameLoop = (timestamp) => {
       // Calculate speed multipliers based on difficulty
       const projectileSpeedMultiplier = 1 + (difficultyLevel - 1) * 0.2;  // Increases by 20% per level
-      const enemySpeedMultiplier = 1 + (difficultyLevel - 1) * 0.3;  // Increases by 20% per level
+      const enemySpeedMultiplier = 1 + (difficultyLevel - 1) * 0.3;  // Increases by 30% per level
       const enemySpawnRateMultiplier = 1 / (1 + (difficultyLevel - 1) * 0.2);  // Spawn rate gets faster
       
-      // Move player between lanes
-      if (keysPressed.ArrowLeft && timestamp - lastShot.current > 100) {
-        setCurrentLane(prev => Math.max(0, prev - 1));
-        lastShot.current = timestamp; // Using lastShot as a debounce timer
-      }
-      if (keysPressed.ArrowRight && timestamp - lastShot.current > 100) {
-        setCurrentLane(prev => Math.min(3, prev + 1));
-        lastShot.current = timestamp; // Using lastShot as a debounce timer
-      }
-      
-      // Create projectiles with adjusted firing rate
-      const firingCooldown = 300 * (1 / (1 + (difficultyLevel - 1) * 0.06));
-      if (keysPressed.Space && timestamp - lastShot.current > firingCooldown) {
-        // Play shooting sound
-        if (shootSoundRef.current) {
-          shootSoundRef.current.currentTime = 0;
-          shootSoundRef.current.play().catch(err => console.log("Audio play error:", err));
+      // Desktop controls
+      if (!isMobile) {
+        // Move player between lanes
+        if (keysPressed.ArrowLeft && timestamp - lastShot.current > 100) {
+          setCurrentLane(prev => Math.max(0, prev - 1));
+          lastShot.current = timestamp; // Using lastShot as a debounce timer
+        }
+        if (keysPressed.ArrowRight && timestamp - lastShot.current > 100) {
+          setCurrentLane(prev => Math.min(3, prev + 1));
+          lastShot.current = timestamp; // Using lastShot as a debounce timer
         }
         
-        setProjectiles(prev => [...prev, { x: playerPosition.x, y: playerPosition.y - 20, id: Date.now() }]);
-        lastShot.current = timestamp;
+        // Create projectiles with adjusted firing rate
+        const firingCooldown = 300 * (1 / (1 + (difficultyLevel - 1) * 0.06));
+        if (keysPressed.Space && timestamp - lastShot.current > firingCooldown) {
+          // Play shooting sound
+          if (shootSoundRef.current) {
+            shootSoundRef.current.currentTime = 0;
+            shootSoundRef.current.play().catch(err => console.log("Audio play error:", err));
+          }
+          
+          setProjectiles(prev => [...prev, { x: playerPosition.x, y: playerPosition.y - 20, id: Date.now() }]);
+          lastShot.current = timestamp;
+        }
+      } else {
+        // Mobile controls - auto-firing while touching
+        const firingCooldown = 300 * (1 / (1 + (difficultyLevel - 1) * 0.06));
+        if (isTouching && timestamp - lastShot.current > firingCooldown) {
+          // Play shooting sound
+          if (shootSoundRef.current) {
+            shootSoundRef.current.currentTime = 0;
+            shootSoundRef.current.play().catch(err => console.log("Audio play error:", err));
+          }
+          
+          setProjectiles(prev => [...prev, { x: playerPosition.x, y: playerPosition.y - 20, id: Date.now() }]);
+          lastShot.current = timestamp;
+        }
       }
       
       // Move projectiles with scaled speed
@@ -213,10 +257,47 @@ const App = () => {
     
     return () => {
       cancelAnimationFrame(animationFrameId.current);
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
+      if (!isMobile) {
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('keyup', handleKeyUp);
+      }
     };
-  }, [isGameActive, keysPressed, playerPosition, enemies, projectiles, difficultyLevel, currentLane, lanes]);
+  }, [isGameActive, keysPressed, playerPosition, enemies, projectiles, difficultyLevel, currentLane, lanes, isMobile, isTouching]);
+  
+  // Mobile touch event handlers
+  const handleTouchStart = (e) => {
+    if (!isGameActive) return;
+    
+    e.preventDefault();
+    const touch = e.touches[0];
+    setTouchStartX(touch.clientX);
+    setIsTouching(true);
+  };
+  
+  const handleTouchMove = (e) => {
+    if (!isGameActive || !isTouching) return;
+    
+    e.preventDefault();
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - touchStartX;
+    
+    if (Math.abs(deltaX) > touchThreshold) {
+      if (deltaX < 0 && currentLane > 0) {
+        // Swiped left
+        setCurrentLane(prev => Math.max(0, prev - 1));
+        setTouchStartX(touch.clientX);
+      } else if (deltaX > 0 && currentLane < 3) {
+        // Swiped right
+        setCurrentLane(prev => Math.min(3, prev + 1));
+        setTouchStartX(touch.clientX);
+      }
+    }
+  };
+  
+  const handleTouchEnd = (e) => {
+    e.preventDefault();
+    setIsTouching(false);
+  };
   
   const startGame = () => {
     setIsGameActive(true);
@@ -232,15 +313,14 @@ const App = () => {
 
   const [showInfo, setShowInfo] = useState(false);
 
-      const openInfo = () => {
-        setShowInfo(true);
-      }
+  const openInfo = () => {
+    setShowInfo(true);
+  }
 
-      const closeInfo = () => {
-        setShowInfo(false);
-      }
+  const closeInfo = () => {
+    setShowInfo(false);
+  }
 
-  
   return (
     <div className="w-full h-[100vh] flex flex-col items-center justify-center p-4 relative overflow-hidden animate-gradient bg-gradient-to-r from-pink-300 via-pink-500 to-pink-300 bg-size-200 ">
       {/* Audio elements for sound effects */}
@@ -259,8 +339,6 @@ const App = () => {
         src="./game_over.wav" // Replace with your sound file path
         preload="auto" 
       />
-
-      
 
       <h1 className="text-2xl font-bold mb-2">Succinct DeepFake Shooter</h1>
       
@@ -281,8 +359,12 @@ const App = () => {
       </div>
       
       <div 
+        ref={gameAreaRef}
         className="relative bg-black border border-pink-600 overflow-hidden"
         style={{ width: gameWidth, height: gameHeight }}
+        onTouchStart={isMobile ? handleTouchStart : undefined}
+        onTouchMove={isMobile ? handleTouchMove : undefined}
+        onTouchEnd={isMobile ? handleTouchEnd : undefined}
       >
         {/* Lane dividers (for visualization) */}
         {[1, 2, 3].map((_, i) => (
@@ -357,33 +439,43 @@ const App = () => {
         {!isGameActive && !gameOver && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black bg-opacity-70">
             <div className="text-white text-2xl font-bold mb-4">Space Shooter</div>
-            <div className="text-white text-lg mb-2">Arrow keys to change lanes</div>
-            <div className="text-white text-lg mb-4">Space to shoot</div>
+            {isMobile ? (
+              <>
+                <div className="text-white text-lg mb-2">Drag left/right to move</div>
+                <div className="text-white text-lg mb-4">Touch and hold to shoot</div>
+              </>
+            ) : (
+              <>
+                <div className="text-white text-lg mb-2">Arrow keys to change lanes</div>
+                <div className="text-white text-lg mb-4">Space to shoot</div>
+              </>
+            )}
           </div>
         )}
       </div>
       
       <div className="mt-4 text-sm text-black">
-        Controls: Arrow keys to change lanes, Space to shoot
+        {isMobile ? (
+          "Controls: Drag left/right to move, touch and hold to shoot"
+        ) : (
+          "Controls: Arrow keys to change lanes, Space to shoot"
+        )}
       </div>
 
       <div className='mt-4 text-sm text-gray-600'>
         Made with Love 🩷 for Succinct by Banny18 
       </div>
 
-        {
-          showInfo && (
-            <div id='info' className='absolute top-[50] left-[120] w-48 bg-pink-950 p-5 text-white'>
-
-            Deepfakes are taking over the internet, it is your job to stop as many as possible before you get infected.
-    
-            Enjoy 😎✌️
-            <button onClick={closeInfo} className='border border-pink-100 p-2 my-1 rounded-2xl cursor-pointer'>
-              close
-            </button>
-          </div>
-          )
-        }
+      {showInfo && (
+        <div id='info' className='absolute top-[50] left-[120] w-48 bg-pink-950 p-5 text-white'>
+          Deepfakes are taking over the internet, it is your job to stop as many as possible before you get infected.
+  
+          Enjoy 😎✌️
+          <button onClick={closeInfo} className='border border-pink-100 p-2 my-1 rounded-2xl cursor-pointer'>
+            close
+          </button>
+        </div>
+      )}
       
     </div>
   );
